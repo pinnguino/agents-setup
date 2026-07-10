@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEMPLATES_DIR="${HOME}/.config/agents-setup/templates"
+
+print_error() {
+	printf 'Failed to create OpenCode agents.\n\nReason:\n%s\n' "$1" >&2
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+Usage: agents-setup --global  [plan|build]
+	   agents-setup --project [plan|build]
+
+Exactly one mode is required:
+  --global     Create agents in ~/.config/opencode/agents/
+  --project    Create agents in ./.opencode/agents/
+
+Optional target:
+  plan         Create only plan.md  (overrides built-in plan agent → Plan Mode)
+  build        Create only build.md (overrides built-in build agent → Build Mode)
+  (none)       Create both plan.md and build.md
+
+Neither agent pins a model — both inherit the global model from opencode.json.
+EOF
+exit 1
+}
+
+mode=""
+target=""
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--global)
+			if [[ -n "$mode" ]]; then
+				printf 'Error: only one of --global or --project is allowed.\n\n' >&2
+				usage
+			fi
+			mode="global"; shift ;;
+		--project)
+			if [[ -n "$mode" ]]; then
+				printf 'Error: only one of --global or --project is allowed.\n\n' >&2
+				usage
+			fi
+			mode="project"; shift ;;
+		plan)      target="plan";  shift ;;
+		build)     target="build"; shift ;;
+	-h|--help)
+		cat <<'EOF'
+Usage: agents-setup --global  [plan|build]
+	   agents-setup --project [plan|build]
+
+Exactly one mode is required:
+  --global     Create agents in ~/.config/opencode/agents/
+  --project    Create agents in ./.opencode/agents/
+
+Optional target:
+  plan         Create only plan.md  (overrides built-in plan agent → Plan Mode)
+  build        Create only build.md (overrides built-in build agent → Build Mode)
+  (none)       Create both plan.md and build.md
+
+Neither agent pins a model — both inherit the global model from opencode.json.
+EOF
+exit 0
+;;
+*)
+	printf 'Unknown argument: %s\n\n' "$1" >&2
+	usage
+	;;
+esac
+done
+
+if [[ "$mode" != "global" && "$mode" != "project" ]]; then
+	printf 'Error: exactly one of --global or --project is required.\n\n' >&2
+	usage
+fi
+
+if [[ -z "$target" ]]; then
+	files=("plan" "build")
+elif [[ "$target" == "plan" || "$target" == "build" ]]; then
+	files=("$target")
+else
+	usage
+fi
+
+if [[ ! -d "$TEMPLATES_DIR" ]]; then
+	print_error "Templates directory not found: $TEMPLATES_DIR
+	Run the install script first to copy the templates."
+fi
+
+for f in "${files[@]}"; do
+	src="${TEMPLATES_DIR}/${f}.md"
+	if [[ ! -f "$src" ]]; then
+		print_error "Template file not found: $src"
+	fi
+done
+
+if [[ "$mode" == "global" ]]; then
+	dest_dir="${HOME}/.config/opencode/agents"
+	display_base="~/.config/opencode/agents"
+else
+	dest_dir="./.opencode/agents"
+	display_base="./.opencode/agents"
+fi
+
+if [[ ${#files[@]} -eq 1 ]]; then
+	file_word="file"
+else
+	file_word="files"
+fi
+
+printf 'OpenCode Agent Setup\n\n'
+printf 'The following %s will be created:\n\n' "$file_word"
+for f in "${files[@]}"; do
+	printf '  %s/%s.md\n' "$display_base" "$f"
+done
+printf '\nNote: plan.md overrides the built-in plan agent (Plan Mode).\n'
+printf '      build.md overrides the built-in build agent (Build Mode).\n'
+printf '      Neither pins a model — both inherit the global model from opencode.json.\n\n'
+printf 'Continue? (y/N): '
+
+read -r answer
+if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+	printf 'Operation cancelled.\nNo files were created.\n'
+	exit 0
+fi
+
+mkdir -p "$dest_dir" 2>/dev/null || {
+	print_error "Could not create directory: ${dest_dir}"
+}
+
+for f in "${files[@]}"; do
+	src="${TEMPLATES_DIR}/${f}.md"
+	dest="${dest_dir}/${f}.md"
+	cp -- "$src" "$dest" 2>/dev/null || {
+		print_error "Could not write file: ${dest}"
+	}
+done
+
+printf '\n✔ OpenCode agents created successfully.\n\nLocation:\n\n  %s/\n' "$display_base"
